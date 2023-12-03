@@ -9,14 +9,24 @@ const BIG_M = 100
 const TOL = 1e-4
 const VARIANCE = 0.1
 
-function makedata(n::Int, m::Int)
-    a = randn(n, m)
-    x = randexp(m)
-    b = a * x + VARIANCE * randn(n)
-    clamp!(b, CLAMP_LB, CLAMP_UB)
-    return a, b, x
-end
 
+"""
+    solveregression(a, b, use_clamping)
+
+Fit a linear model to the observed data. 
+
+`a` is an n-by-m matrix of observed independent variables, and
+`b` is an n-vector of observed dependent variables. Returns a
+`NamedTuple` `res`, where `res.x` gives the predicted coefficients
+and `res.bpred` gives the predicted values of `b`.
+
+- If `use_clamping` is `false`, the model to be fit is `b = a * x`.
+- If `use_clamping` is `true`, the model to be fit is 
+`b = clamp.(a * x, CLAMP_LB, CLAMP_UB)`.
+
+In either case, the loss function is the sum of absolute deviations 
+between `res.bpred` and `b` (that is, 1-norm loss).
+"""
 function solveregression(a::Matrix{Float64}, b::Vector{Float64}, use_clamping::Bool)
     n, m = size(a)
     @assert (n,) == size(b)
@@ -68,6 +78,20 @@ function solveregression(a::Matrix{Float64}, b::Vector{Float64}, use_clamping::B
         end
     end
     return (x=value.(x), bpred=value.(bpred))
+end
+
+"""
+    makedata(n, m)
+
+Make some fake data with `n` observations and `m` independent
+variables.
+"""
+function makedata(n::Int, m::Int)
+    a = randn(n, m)
+    x = randexp(m)
+    b = a * x + VARIANCE * randn(n)
+    clamp!(b, CLAMP_LB, CLAMP_UB)
+    return a, b, x
 end
 
 function main()
