@@ -31,16 +31,22 @@ function solveregression(a::Matrix{Float64}, b::Vector{Float64}, use_clamping::B
     n, m = size(a)
     @assert (n,) == size(b)
 
+    # Initialize a JuMP model
     model = Model(SCIP.Optimizer)
+
     # x needs an lb and ub for the indicator constraints to work.
     # As a heuristic, set these to large values derived from input data.
+    # In practice, these bounds should never be binding
     maxabsx = BIG_M * maximum(abs, a)
     @variable(model, -maxabsx ≤ x[1:m] ≤ maxabsx)
 
+    # Set bpred to our desired model
     @expression(model, bpred_linear, a * x)
-
     bpred = if use_clamping
-        # bpred_clamp = clamp.(bpred_linear, CLAMP_LB, CLAMP_UB)
+        # Goal: bpred_clamp = clamp.(bpred_linear, CLAMP_LB, CLAMP_UB)
+
+        # Set up indicator variables of whether bpred_linear exceeded
+        # clamp bounds
         @variable(model, clamphelper_lb[1:n], Bin)
         @variable(model, clamphelper_ub[1:n], Bin)
         # note: We may not need both directions of the implication here
@@ -48,6 +54,8 @@ function solveregression(a::Matrix{Float64}, b::Vector{Float64}, use_clamping::B
         @constraint(model, [i in 1:n], !clamphelper_lb[i] => {bpred_linear[i] ≥ CLAMP_LB})
         @constraint(model, [i in 1:n], clamphelper_ub[i] => {bpred_linear[i] ≥ CLAMP_UB})
         @constraint(model, [i in 1:n], !clamphelper_ub[i] => {bpred_linear[i] ≤ CLAMP_UB})
+
+        # Define bpred_clamp using the indicator variables
         @expression(model, bpred_clamp[i in 1:n],
             # Start with the linear fit
             bpred_linear[i]
@@ -64,17 +72,23 @@ function solveregression(a::Matrix{Float64}, b::Vector{Float64}, use_clamping::B
         bpred_linear
     end
 
-    # 1-norm loss
+    # Set up 1-norm loss objective function
     @variable(model, margin[1:n])
     @constraint(model, bpred .- b .≤ margin)
     @constraint(model, bpred .- b .≥ -margin)
     @objective(model, Min, sum(margin))
 
+    # Solve the problem
     optimize!(model)
 
+    # Warn if our heuristic bounds on x turned out to be binding
+    if !all(-maxabsx + TOL < value(z) < maxabsx - TOL for z in x)
+        @warn "x exceeded heuristic bounds"
+    end
+
     # Validate that clamping math worked as expected
-    use_clamping && for z in bpred
-        @assert CLAMP_LB - TOL ≤ value(z) ≤ CLAMP_UB + TOL
+    if use_clamping
+        @assert all(CLAMP_LB - TOL ≤ value(z) ≤ CLAMP_UB + TOL for z in bpred)
     end
     return (x=value.(x), bpred=value.(bpred))
 end
