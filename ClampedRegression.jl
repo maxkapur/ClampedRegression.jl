@@ -3,11 +3,19 @@ using SCIP
 using Plots
 using Random
 
+# Used to derive upper bound on x; try increasing if you get warnings
 const BIG_M = 100
+
+# "Known" bounds on the predicted variable--will be respected by fake
+# data generation as well as parameter estimation
 const CLAMP_LB = -0.5
 const CLAMP_UB = 0.5
-const TOL = 1e-4
+
+# Scale of noise added the fake input data
 const VARIANCE = 0.1
+
+# Used for floating-point convergence checks
+const TOL = 1e-5
 
 
 """
@@ -46,10 +54,11 @@ function solveregression(a::Matrix{Float64}, b::Vector{Float64}, use_clamping::B
         # Goal: bpred_clamp = clamp.(bpred_linear, CLAMP_LB, CLAMP_UB)
 
         # Set up indicator variables of whether bpred_linear exceeded
-        # clamp bounds
+        # clamp bounds. In the model, `clamphelper_lb[i] == 1` means
+        # "replace `bpred_linear[i]` with `CLAMP_LB` to get `bpred[i]`" 
         @variable(model, clamphelper_lb[1:n], Bin)
         @variable(model, clamphelper_ub[1:n], Bin)
-        # note: We may not need both directions of the implication here
+
         @constraint(model, [i in 1:n], clamphelper_lb[i] => {bpred_linear[i] ≤ CLAMP_LB})
         @constraint(model, [i in 1:n], !clamphelper_lb[i] => {bpred_linear[i] ≥ CLAMP_LB})
         @constraint(model, [i in 1:n], clamphelper_ub[i] => {bpred_linear[i] ≥ CLAMP_UB})
